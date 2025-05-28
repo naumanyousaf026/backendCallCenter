@@ -5,13 +5,13 @@ const dotenv = require("dotenv");
 const path = require('path');
 
 const aboutusRoutes = require("./routes/aboutUs");
-const teamRoutes = require("./routes/teamRoutes");
-const clientStatsRoutes = require("./routes/clientStats");
+const teamRoutes = require("./routes/team");
+
 const contactInfoRoutes = require("./routes/contactInfo");
 const contactFormRoutes = require("./routes/contactForm");
-const faqRoutes = require("./routes/faq");
 const serviceRoutes = require("./routes/service");
-
+const homeRoutes = require("./routes/home");
+const adminRoutes = require("./routes/admin");
 dotenv.config();
 connectDB();
 
@@ -33,11 +33,11 @@ app.use(express.json());
 
 app.use("/api/aboutus", aboutusRoutes);
 app.use("/api/team", teamRoutes);
-app.use("/api/client-stats", clientStatsRoutes);
 app.use("/api/contact-info", contactInfoRoutes);
 app.use("/api/contact-form", contactFormRoutes);
-app.use("/api/faq", faqRoutes);
 app.use("/api/services", serviceRoutes);
+app.use("/api", homeRoutes);
+app.use("/api/admin", adminRoutes);
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
