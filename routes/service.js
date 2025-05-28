@@ -1,15 +1,13 @@
-// routes/service.js
-const express = require("express");
-const multer = require("multer");
-const Service = require("../models/Service");
-const path = require("path");
-
+const express = require('express');
 const router = express.Router();
+const path = require('path');
+const multer = require("multer");
+const ServicesContent = require('../models/ServicesPageContent');
 
-// Configure multer for file uploads to the ServiceImage folder
+// ===== Multer Setup ===== //
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, "../ServiceImage")); // Ensure the full path is used
+    cb(null, path.join(__dirname, "../ServiceImage"));
   },
   filename: function (req, file, cb) {
     cb(null, Date.now() + "-" + file.originalname);
@@ -18,71 +16,116 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// GET all services
-router.get("/", async (req, res) => {
+// ===== GET all sections (Read) ===== //
+router.get('/services', async (req, res) => {
   try {
-    const services = await Service.find();
-    res.json(services);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+    const allContent = await ServicesContent.find({});
+    const response = {};
 
-// GET a single service by ID
-router.get("/:id", async (req, res) => {
-  try {
-    const service = await Service.findById(req.params.id);
-    if (!service) return res.status(404).json({ message: "Service not found" });
-    res.json(service);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// CREATE a new service with image upload
-router.post("/", upload.single("image"), async (req, res) => {
-  const service = new Service({
-    image: req.file ? req.file.filename : null,
-    name: req.body.name,
-    description: req.body.description,
-  });
-
-  try {
-    const newService = await service.save();
-    res.status(201).json(newService);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-});
-
-// UPDATE a service by ID
-router.put("/:id", upload.single("image"), async (req, res) => {
-  const updateData = {
-    name: req.body.name,
-    description: req.body.description,
-    image: req.file ? req.file.path : null, // Handle image upload on update
-  };
-
-  try {
-    const service = await Service.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
-      runValidators: true,
+    allContent.forEach(item => {
+      response[item.section] = item.content;
     });
-    if (!service) return res.status(404).json({ message: "Service not found" });
-    res.json(service);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
+
+    res.json(response);
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching content', error: err });
   }
 });
 
-// DELETE a service by ID
-router.delete("/:id", async (req, res) => {
+// ===== GET single section (optional but useful) ===== //
+router.get('/services/:section', async (req, res) => {
   try {
-    const service = await Service.findByIdAndDelete(req.params.id);
-    if (!service) return res.status(404).json({ message: "Service not found" });
-    res.json({ message: "Service deleted" });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+    const { section } = req.params;
+    const content = await ServicesContent.findOne({ section });
+
+    if (!content) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    res.json(content);
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching section', error: err });
+  }
+});
+
+// ===== POST: Create new section (Create) ===== //
+router.post('/', async (req, res) => {
+  try {
+    const { section, content } = req.body;
+
+    const exists = await ServicesContent.findOne({ section });
+    if (exists) {
+      return res.status(400).json({ message: 'Section already exists' });
+    }
+
+    const newSection = new ServicesContent({ section, content });
+    await newSection.save();
+
+    res.status(201).json(newSection);
+  } catch (err) {
+    res.status(500).json({ message: 'Error creating section', error: err });
+  }
+});
+
+// ===== PUT: Update section (Update) ===== //
+router.put('/services/:section', async (req, res) => {
+  try {
+    const { section } = req.params;
+    const { content } = req.body;
+
+    const updated = await ServicesContent.findOneAndUpdate(
+      { section },
+      { content },
+      { new: true, upsert: true }
+    );
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: 'Error updating section', error: err });
+  }
+});
+
+// ===== DELETE: Remove a section (Delete) ===== //
+router.delete('/services/:section', async (req, res) => {
+  try {
+    const { section } = req.params;
+
+    const deleted = await ServicesContent.findOneAndDelete({ section });
+
+    if (!deleted) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    res.json({ message: 'Section deleted successfully', deleted });
+  } catch (err) {
+    res.status(500).json({ message: 'Error deleting section', error: err });
+  }
+});
+
+// ===== POST: Upload Image for section ===== //
+router.post('/services/upload-image/:section', upload.single('image'), async (req, res) => {
+  try {
+    const { section } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No image uploaded" });
+    }
+
+    const imagePath = `/ServiceImage/${req.file.filename}`;
+
+    const updated = await ServicesContent.findOneAndUpdate(
+      { section },
+      { $set: { 'content.image': imagePath } },
+      { new: true, upsert: true }
+    );
+
+    res.status(200).json({
+      message: 'Image uploaded successfully',
+      imageUrl: imagePath,
+      updated,
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Image upload failed', error: err.message });
   }
 });
 

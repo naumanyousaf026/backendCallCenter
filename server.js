@@ -10,7 +10,7 @@ const clientStatsRoutes = require("./routes/clientStats");
 const contactInfoRoutes = require("./routes/contactInfo");
 const contactFormRoutes = require("./routes/contactForm");
 const faqRoutes = require("./routes/faq");
-
+const serviceRoutes = require("./routes/service");
 
 dotenv.config();
 connectDB();
@@ -37,6 +37,7 @@ app.use("/api/client-stats", clientStatsRoutes);
 app.use("/api/contact-info", contactInfoRoutes);
 app.use("/api/contact-form", contactFormRoutes);
 app.use("/api/faq", faqRoutes);
+app.use("/api/services", serviceRoutes);
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
