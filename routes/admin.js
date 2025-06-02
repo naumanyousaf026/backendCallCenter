@@ -1,29 +1,25 @@
 const express = require("express");
 const bcrypt = require('bcryptjs');
-
 const jwt = require("jsonwebtoken");
 const Admin = require("../models/Admin");
-const { sendOTPViaEmail } = require("../utils/otpService"); // Import OTP service
+const { sendOTPViaEmail } = require("../utils/otpService");
 require("dotenv").config();
 
 const router = express.Router();
-let otpStore = {}; // Temporarily store OTPs (Consider using Redis or a database in production)
+let otpStore = {};
 
-// Generate 4-digit OTP
 function generateOTP() {
-  return Math.floor(1000 + Math.random() * 9000); // 4-digit OTP
+  return Math.floor(1000 + Math.random() * 9000);
 }
 
 // Register Route
 router.post("/register", async (req, res) => {
   const { name, email, password } = req.body;
 
-  // Allow signup only for the specific admin email
   if (email !== "naumany518@gmail.com") {
     return res.status(403).json({ message: "Access denied" });
   }
 
-  // Check if name, email, and password are provided
   if (!name || !email || !password) {
     return res
       .status(400)
@@ -51,16 +47,14 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// Login Route
+// Login Route - FIXED: Added role to JWT payload
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  // Allow login only for the specific admin email
   if (email !== "naumany518@gmail.com") {
     return res.status(403).json({ message: "Access denied" });
   }
 
-  // Check if email and password are provided
   if (!email || !password) {
     return res.status(400).json({ message: "Email and password are required" });
   }
@@ -76,9 +70,12 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
-    const token = jwt.sign({ id: admin._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
+    // FIXED: Include role in JWT payload
+    const token = jwt.sign(
+      { id: admin._id, role: "admin" }, 
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" } // Increased to 24h for better UX
+    );
 
     res.json({
       token,
@@ -132,7 +129,7 @@ router.post("/sendotp", async (req, res) => {
     }
 
     const otp = generateOTP();
-    otpStore[email] = otp; // Store OTP temporarily, associate with the email
+    otpStore[email] = otp;
 
     await sendOTPViaEmail(email, otp);
 
@@ -162,10 +159,22 @@ router.post("/verifyotp", async (req, res) => {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    delete otpStore[email]; // Clear OTP after successful verification
+    delete otpStore[email];
     res.status(200).json({ message: "OTP verified successfully" });
   } catch (error) {
     console.error("OTP verification error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// ADDED: Logout Route (optional - for server-side token invalidation)
+router.post("/logout", async (req, res) => {
+  try {
+    // In a production app, you might want to blacklist the token
+    // For now, we'll just send a success response
+    res.status(200).json({ message: "Logged out successfully" });
+  } catch (error) {
+    console.error("Logout error:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });

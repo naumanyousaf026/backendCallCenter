@@ -4,15 +4,10 @@ const bodyParser = require('body-parser');
 const dotenv = require("dotenv");
 const path = require('path');
 
-const aboutusRoutes = require("./routes/aboutUs");
-const teamRoutes = require("./routes/team");
-
-const contactInfoRoutes = require("./routes/contactInfo");
-const contactFormRoutes = require("./routes/contactForm");
-const serviceRoutes = require("./routes/service");
-const homeRoutes = require("./routes/home");
+const contactFormRoutes = require("./routes/contactForm")
 const blogRoutes = require("./routes/blog");
 const adminRoutes = require("./routes/admin");
+const PageContent = require("./routes/pageContent");
 dotenv.config();
 connectDB();
 
@@ -32,17 +27,12 @@ app.use(
 app.use(express.json());
 
 
-app.use("/api/aboutus", aboutusRoutes);
-app.use("/api/team", teamRoutes);
-app.use("/api/contact-info", contactInfoRoutes);
+
+
 app.use("/api/contact-form", contactFormRoutes);
-app.use("/api/services", serviceRoutes);
-app.use("/api", homeRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/blog", blogRoutes);
-
-
-
+app.use("/api/page-content",PageContent);
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
