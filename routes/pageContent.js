@@ -127,12 +127,34 @@ router.get('/:page/:section', async (req, res) => {
   }
 });
 
-// CREATE section (Admin only)
-router.post('/', verifyAdminToken, async (req, res) => {
+// CREATE section (Admin only) - supports both JSON and FormData
+router.post('/', verifyAdminToken, upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'senderImage', maxCount: 1 }
+]), async (req, res) => {
   try {
-    const { page, section, content } = req.body;
-    const exists = await PageContent.findOne({ page, section });
+    let { page, section, content } = req.body;
+    
+    // If content is a string (from FormData), parse it
+    if (typeof content === 'string') {
+      try {
+        content = JSON.parse(content);
+      } catch (e) {
+        // If parsing fails, treat as plain text
+      }
+    }
 
+    // Handle file uploads
+    if (req.files) {
+      if (req.files.image && req.files.image[0]) {
+        content.imageUrl = `/uploads/${req.files.image[0].filename}`;
+      }
+      if (req.files.senderImage && req.files.senderImage[0]) {
+        content.senderImageUrl = `/uploads/${req.files.senderImage[0].filename}`;
+      }
+    }
+
+    const exists = await PageContent.findOne({ page, section });
     if (exists) return res.status(400).json({ message: 'Section already exists' });
 
     const newItem = new PageContent({ page, section, content });
@@ -145,25 +167,109 @@ router.post('/', verifyAdminToken, async (req, res) => {
   }
 });
 
-// UPDATE section (Admin only)
-router.put('/:page/:section', verifyAdminToken, async (req, res) => {
+// UPDATE section (Admin only) - Simplified version
+router.put('/:page/:section', verifyAdminToken, upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'senderImage', maxCount: 1 }
+]), async (req, res) => {
   try {
     const { page, section } = req.params;
-    const { content } = req.body;
+    
+    // Get the existing document
+    const existingDoc = await PageContent.findOne({ page, section });
+    
+    // Initialize content - preserve existing content if it exists
+    let updatedContent = existingDoc ? { ...existingDoc.content } : {};
+    
+    // Handle JSON content from body
+    if (req.body && Object.keys(req.body).length > 0) {
+      // If content is sent as a JSON string (from FormData)
+      if (typeof req.body.content === 'string') {
+        try {
+          const parsedContent = JSON.parse(req.body.content);
+          updatedContent = { ...updatedContent, ...parsedContent };
+        } catch (e) {
+          console.error('Error parsing content JSON:', e);
+        }
+      } 
+      // If content is sent as an object (from axios JSON)
+      else if (req.body.content && typeof req.body.content === 'object') {
+        updatedContent = { ...updatedContent, ...req.body.content };
+      }
+      // If the entire body is the content (direct send from frontend)
+      else if (!req.body.content) {
+        // Remove any multer-specific fields and merge the rest
+        const { image, senderImage, ...contentData } = req.body;
+        updatedContent = { ...updatedContent, ...contentData };
+      }
+    }
 
-    // Check content size (should be much smaller now with image URLs)
-    const contentSize = JSON.stringify(content).length;
+    // Handle individual form fields (for compatibility)
+    const textFields = ['tagline', 'description', 'subHeading', 'mainText', 'bodyText', 'testimonialText', 'testimonialAuthor'];
+    textFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updatedContent[field] = req.body[field];
+      }
+    });
+
+    // Handle nested objects (like title, button)
+    if (req.body.title && typeof req.body.title === 'object') {
+      updatedContent.title = { ...updatedContent.title, ...req.body.title };
+    }
+    if (req.body.button && typeof req.body.button === 'object') {
+      updatedContent.button = { ...updatedContent.button, ...req.body.button };
+    }
+    if (req.body.steps && Array.isArray(req.body.steps)) {
+      updatedContent.steps = req.body.steps;
+    }
+
+    // Handle file uploads
+    if (req.files) {
+      if (req.files.image && req.files.image[0]) {
+        // Delete old image if exists
+        if (updatedContent.imageUrl) {
+          const oldImagePath = path.join(uploadsDir, path.basename(updatedContent.imageUrl));
+          if (fs.existsSync(oldImagePath)) {
+            fs.unlinkSync(oldImagePath);
+          }
+        }
+        updatedContent.imageUrl = `/uploads/${req.files.image[0].filename}`;
+      }
+      
+      if (req.files.senderImage && req.files.senderImage[0]) {
+        // Delete old sender image if exists
+        if (updatedContent.senderImageUrl) {
+          const oldSenderImagePath = path.join(uploadsDir, path.basename(updatedContent.senderImageUrl));
+          if (fs.existsSync(oldSenderImagePath)) {
+            fs.unlinkSync(oldSenderImagePath);
+          }
+        }
+        updatedContent.senderImageUrl = `/uploads/${req.files.senderImage[0].filename}`;
+      }
+    }
+
+    // Check content size
+    const contentSize = JSON.stringify(updatedContent).length;
     if (contentSize > 5000000) { // 5MB limit for JSON content
       return res.status(413).json({ 
         message: 'Content is too large. Please use image URLs instead of base64 data.' 
       });
     }
 
+    // Update or create the document
     const updated = await PageContent.findOneAndUpdate(
       { page, section },
-      { content, updatedAt: new Date() },
-      { new: true, upsert: true }
+      { 
+        content: updatedContent, 
+        updatedAt: new Date() 
+      },
+      { 
+        new: true, 
+        upsert: true // This will create the document if it doesn't exist
+      }
     );
+
+    // console.log('Updated content:', updated); // Debug log
 
     res.json(updated);
   } catch (err) {
@@ -186,6 +292,20 @@ router.delete('/:page/:section', verifyAdminToken, async (req, res) => {
     const deleted = await PageContent.findOneAndDelete({ page, section });
 
     if (!deleted) return res.status(404).json({ message: 'Section not found' });
+
+    // Delete associated images if they exist
+    if (deleted.content.imageUrl) {
+      const imagePath = path.join(uploadsDir, path.basename(deleted.content.imageUrl));
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
+    }
+    if (deleted.content.senderImageUrl) {
+      const senderImagePath = path.join(uploadsDir, path.basename(deleted.content.senderImageUrl));
+      if (fs.existsSync(senderImagePath)) {
+        fs.unlinkSync(senderImagePath);
+      }
+    }
 
     res.json({ message: 'Section deleted successfully', deleted });
   } catch (err) {

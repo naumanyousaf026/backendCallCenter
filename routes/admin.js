@@ -2,6 +2,8 @@ const express = require("express");
 const bcrypt = require('bcryptjs');
 const jwt = require("jsonwebtoken");
 const Admin = require("../models/Admin");
+const verifyAdminToken = require("../middleware/adminAuthMiddleware");
+
 const { sendOTPViaEmail } = require("../utils/otpService");
 require("dotenv").config();
 
@@ -16,7 +18,7 @@ function generateOTP() {
 router.post("/register", async (req, res) => {
   const { name, email, password } = req.body;
 
-  if (email !== "naumany518@gmail.com") {
+  if (email !== "naumanyousaf026@gmail.com") {
     return res.status(403).json({ message: "Access denied" });
   }
 
@@ -51,7 +53,7 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  if (email !== "naumany518@gmail.com") {
+  if (email !== "naumanyousaf026@gmail.com") {
     return res.status(403).json({ message: "Access denied" });
   }
 
@@ -139,6 +141,31 @@ router.post("/sendotp", async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });
+// Resend OTP Route
+router.post("/resendotp", async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ message: "Email is required" });
+  }
+
+  try {
+    const admin = await Admin.findOne({ email });
+    if (!admin) {
+      return res.status(400).json({ message: "Admin not found" });
+    }
+
+    const otp = generateOTP();
+    otpStore[email] = otp;
+
+    await sendOTPViaEmail(email, otp);
+
+    res.status(200).json({ message: "OTP resent successfully" });
+  } catch (error) {
+    console.error("Error resending OTP:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
 
 // Verify OTP Route
 router.post("/verifyotp", async (req, res) => {
@@ -178,5 +205,78 @@ router.post("/logout", async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });
+// Change Password (only accessible to logged-in admin)
+router.post("/changepassword", verifyAdminToken, async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  const admin = req.admin; // set by middleware
+
+  if (!oldPassword || !newPassword) {
+    return res.status(400).json({ message: "Old and new passwords are required" });
+  }
+
+  try {
+    const isMatch = await bcrypt.compare(oldPassword, admin.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Old password is incorrect" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    admin.password = hashedPassword;
+    await admin.save();
+
+    res.status(200).json({ message: "Password changed successfully" });
+  } catch (error) {
+    console.error("Change password error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// Update Admin Profile (only accessible to logged-in admin)
+router.put("/updateprofile", verifyAdminToken, async (req, res) => {
+  const { name, phone, image } = req.body;
+  const admin = req.admin; // from middleware
+
+  try {
+    // Only update if values are provided
+    if (name) admin.name = name;
+    if (phone) admin.phone = phone;
+    if (image) admin.image = image;
+
+    await admin.save();
+
+    res.status(200).json({
+      message: "Profile updated successfully",
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email,
+        phone: admin.phone,
+        image: admin.image,
+      },
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+
+// Get Logged-in Admin Info
+router.get("/me", verifyAdminToken, async (req, res) => {
+  try {
+    const admin = req.admin; // set by middleware
+    res.status(200).json({
+      id: admin._id,
+      name: admin.name,
+      email: admin.email,
+      phone: admin.phone,
+      image: admin.image,
+    });
+  } catch (error) {
+    console.error("Error fetching admin:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
 
 module.exports = router;

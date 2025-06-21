@@ -26,6 +26,8 @@ router.post("/", upload.single("image"), async (req, res) => {
       lastName: req.body.lastName,
       gender: req.body.gender,
       role: req.body.role,
+      Phone: req.body.Phone, // Optional phone field
+      joinDate: req.body.joinDate ? new Date(req.body.joinDate) : Date.now(), // Use provided date or current date
       description: req.body.description,
       email: req.body.email, // Capture email from request body
       image: req.file ? req.file.filename : undefined, // Save just the filename
@@ -70,6 +72,8 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       lastName: req.body.lastName,
       gender: req.body.gender,
       role: req.body.role,
+      Phone: req.body.Phone, // Optional phone field
+      joinDate: req.body.joinDate ? new Date(req.body.joinDate) : Date.now(), // Use provided date or current date
       description: req.body.description,
       email: req.body.email, // Capture email from request body
     };

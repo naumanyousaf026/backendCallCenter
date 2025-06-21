@@ -14,6 +14,14 @@ const AdminSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  phone: {
+    type: String,
+    default: "", // optional field
+  },
+  image: {
+    type: String, // store image URL or file path
+    default: "",  // optional field
+  },
 });
 
 module.exports = mongoose.model("Admin", AdminSchema);

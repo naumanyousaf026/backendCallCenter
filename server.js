@@ -10,6 +10,7 @@ const blogPageRoutes = require("./routes/blogPageContent");
 const adminRoutes = require("./routes/admin");
 const PageContent = require("./routes/pageContent");
 const teamRoutes = require("./routes/team");
+const SiteConfigRoutes = require("./routes/siteConfigRoute"); 
 dotenv.config();
 connectDB();
 
@@ -54,7 +55,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/blog", blogRoutes);
 app.use("/api/blog-page", blogPageRoutes);
 app.use("/api/page-content",PageContent);
-
+app.use("/api/site-config", SiteConfigRoutes);
 app.use("/api/team", teamRoutes);
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

@@ -3,8 +3,9 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const slugify = require("slugify");
-const mongoose = require("mongoose"); // Add this import
+const mongoose = require("mongoose");
 const Blog = require("../models/Blog");
+const verifyAdminToken = require('../middleware/adminAuthMiddleware');
 const router = express.Router();
 
 // Ensure upload directory exists
@@ -13,16 +14,14 @@ if (!fs.existsSync(blogImagesDir)) {
   fs.mkdirSync(blogImagesDir, { recursive: true });
 }
 
-// Set up Multer storage for image upload
+// Multer storage
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, blogImagesDir);
-  },
+  destination: (req, file, cb) => cb(null, blogImagesDir),
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const extension = path.extname(file.originalname);
     cb(null, 'blog-' + uniqueSuffix + extension);
-  },
+  }
 });
 
 const fileFilter = (req, file, cb) => {
@@ -40,51 +39,30 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }
 });
 
-// Function to generate slugs for all blogs
+// Slug generator
 async function generateSlugs() {
   try {
-    // Get all blogs without slugs or with empty slugs
     const blogs = await Blog.find({ $or: [{ slug: { $exists: false } }, { slug: "" }] });
-    
-    console.log(`Found ${blogs.length} blogs without slugs`);
-    
-    // Update each blog with a slug
     for (const blog of blogs) {
       const slug = slugify(blog.title, { lower: true, strict: true });
-      
-      // Check if slug already exists (avoid duplicates)
       const existingBlog = await Blog.findOne({ slug });
-      
-      if (existingBlog && existingBlog._id.toString() !== blog._id.toString()) {
-        // If duplicate, add a random suffix
-        const uniqueSuffix = Date.now().toString().slice(-4);
-        blog.slug = `${slug}-${uniqueSuffix}`;
-      } else {
-        blog.slug = slug;
-      }
-      
+
+      blog.slug = existingBlog && existingBlog._id.toString() !== blog._id.toString()
+        ? `${slug}-${Date.now().toString().slice(-4)}`
+        : slug;
+
       await blog.save();
-      console.log(`Updated blog "${blog.title}" with slug "${blog.slug}"`);
     }
-    
-    console.log('All blogs updated successfully!');
   } catch (error) {
     console.error('Error generating slugs:', error);
   }
-  // Remove mongoose.disconnect() - let the main app handle connection lifecycle
 }
 
-// Comment out the immediate execution - this should be called manually when needed
-// generateSlugs();
-
-// ---------------------------- ROUTES ----------------------------
-
-// Public route: Get only published blogs
+// Public: Get published blogs
 router.get("/", async (req, res) => {
   try {
     const { page = 1, limit = 10, category, tag } = req.query;
     const query = { status: "published" };
-
     if (category) query.category = category;
     if (tag) query.tags = { $in: [tag] };
 
@@ -95,7 +73,6 @@ router.get("/", async (req, res) => {
       .select('-content');
 
     const count = await Blog.countDocuments(query);
-
     res.status(200).json({
       blogs,
       totalPages: Math.ceil(count / limit),
@@ -103,13 +80,12 @@ router.get("/", async (req, res) => {
       totalBlogs: count,
     });
   } catch (err) {
-    console.error("Error fetching blogs:", err);
     res.status(500).json({ error: "Failed to fetch blogs", details: err.message });
   }
 });
 
-// Admin route: Get all blogs (draft + published)
-router.get("/admin/all", async (req, res) => {
+// Admin: Get all blogs
+router.get("/admin/all", verifyAdminToken, async (req, res) => {
   try {
     const blogs = await Blog.find().sort({ createdAt: -1 });
     res.status(200).json(blogs);
@@ -118,7 +94,7 @@ router.get("/admin/all", async (req, res) => {
   }
 });
 
-// Get a single blog by ID
+// Public: Get single published blog by ID
 router.get("/:id", async (req, res) => {
   try {
     const blog = await Blog.findById(req.params.id);
@@ -131,17 +107,13 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// Create a new blog
-router.post("/", upload.single("featuredImage"), async (req, res) => {
+// Admin: Create blog
+router.post("/", verifyAdminToken, upload.single("featuredImage"), async (req, res) => {
   try {
     const { title, duration, category, content, tags, status = 'draft', author = 'Admin' } = req.body;
     const slug = slugify(title, { lower: true, strict: true });
 
-    const newBlog = new Blog({
-      title, slug, duration, category, content,
-      status,
-      author,
-    });
+    const newBlog = new Blog({ title, slug, duration, category, content, status, author });
 
     if (req.file) {
       newBlog.featuredImage = `/blogImages/${req.file.filename}`;
@@ -159,8 +131,8 @@ router.post("/", upload.single("featuredImage"), async (req, res) => {
   }
 });
 
-// PATCH a blog - update existing blog
-router.patch('/:id', upload.single('featuredImage'), async (req, res) => {
+// Admin: Update blog
+router.patch('/:id', verifyAdminToken, upload.single('featuredImage'), async (req, res) => {
   try {
     const blogData = {
       title: req.body.title,
@@ -171,31 +143,22 @@ router.patch('/:id', upload.single('featuredImage'), async (req, res) => {
       author: req.body.author,
       tags: req.body.tags ? JSON.parse(req.body.tags) : []
     };
-    
-    // Generate/update slug if title is changing
+
     if (req.body.title) {
       blogData.slug = slugify(req.body.title, { lower: true, strict: true });
     }
-    
+
     if (req.file) {
-      // Handle image update - delete old image if exists
       const oldBlog = await Blog.findById(req.params.id);
       if (oldBlog && oldBlog.image && oldBlog.image !== blogData.image) {
         const oldImagePath = path.join(__dirname, '..', oldBlog.image);
-        if (fs.existsSync(oldImagePath)) {
-          fs.unlinkSync(oldImagePath);
-        }
+        if (fs.existsSync(oldImagePath)) fs.unlinkSync(oldImagePath);
       }
       blogData.image = `/blogImages/${req.file.filename}`;
       blogData.featuredImage = `/blogImages/${req.file.filename}`;
     }
-    
-    const updatedBlog = await Blog.findByIdAndUpdate(
-      req.params.id, 
-      blogData, 
-      { new: true }
-    );
-    
+
+    const updatedBlog = await Blog.findByIdAndUpdate(req.params.id, blogData, { new: true });
     if (!updatedBlog) return res.status(404).json({ message: 'Blog not found' });
     res.json(updatedBlog);
   } catch (err) {
@@ -203,14 +166,11 @@ router.patch('/:id', upload.single('featuredImage'), async (req, res) => {
   }
 });
 
-// Delete blog by ID
-router.delete("/:id", async (req, res) => {
+// Admin: Delete blog
+router.delete("/:id", verifyAdminToken, async (req, res) => {
   try {
     const blog = await Blog.findById(req.params.id);
-
-    if (!blog) {
-      return res.status(404).json({ error: "Blog not found" });
-    }
+    if (!blog) return res.status(404).json({ error: "Blog not found" });
 
     if (blog.featuredImage) {
       const imagePath = path.join(__dirname, '..', blog.featuredImage);
@@ -224,20 +184,18 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// Get blog by slug (for frontend display)
+// Public: Get blog by slug
 router.get("/slug/:slug", async (req, res) => {
   try {
     const blog = await Blog.findOne({ slug: req.params.slug, status: "published" });
-    if (!blog) {
-      return res.status(404).json({ error: "Blog not found or not published" });
-    }
+    if (!blog) return res.status(404).json({ error: "Blog not found or not published" });
     res.status(200).json(blog);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch blog", details: err.message });
   }
 });
 
-// Categories
+// Public: Get all categories
 router.get("/categories/all", async (req, res) => {
   try {
     const categories = await Blog.distinct("category");
@@ -247,7 +205,7 @@ router.get("/categories/all", async (req, res) => {
   }
 });
 
-// Tags
+// Public: Get all tags
 router.get("/tags/all", async (req, res) => {
   try {
     const tags = await Blog.distinct("tags");
@@ -257,8 +215,8 @@ router.get("/tags/all", async (req, res) => {
   }
 });
 
-// Route to manually generate slugs for existing blogs
-router.post("/admin/generate-slugs", async (req, res) => {
+// Admin: Generate slugs
+router.post("/admin/generate-slugs", verifyAdminToken, async (req, res) => {
   try {
     await generateSlugs();
     res.status(200).json({ message: "Slugs generated successfully" });
